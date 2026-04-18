@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import InputSoal from '../components/InputSoal'
 import DataSiswa from '../components/DataSiswa'
 import ManageTests from '../components/ManageTests'
+import HasilTest from '../components/HasilTest'
 
 const STATUS_LABEL = {
   standby: { label: 'Standby', color: 'text-slate-400', bg: 'bg-slate-800', border: 'border-slate-600', dot: 'bg-slate-400' },
@@ -333,6 +334,7 @@ const updateStatus = async (newStatus) => {
         setView('input_soal')
       }} 
     />
+   if (view === 'hasil_test') return <HasilTest onBack={() => setView('dashboard')} />
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-mono">
@@ -353,13 +355,25 @@ const updateStatus = async (newStatus) => {
              >
                👥 <span className="hidden sm:inline">Data Siswa</span>
              </button>
-             <button
-               onClick={() => setView('manage_tests')}
-               className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
-             >
-               📚 <span className="hidden sm:inline">Kelola Test</span>
-               {tests.length > 0 && <span className="text-xs text-amber-400">({tests.length})</span>}
-             </button>
+<button
+                onClick={() => setView('manage_tests')}
+                className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
+              >
+                📚 <span className="hidden sm:inline">Kelola Test</span>
+                {tests.length > 0 && <span className="text-xs text-amber-400">({tests.length})</span>}
+              </button>
+              <button
+                onClick={() => setView('hasil_test')}
+                className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
+              >
+                📊 <span className="hidden sm:inline">Hasil Test</span>
+              </button>
+              <button
+                onClick={() => setView('input_soal')}
+                className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
+              >
+                📝 <span className="hidden sm:inline">InputSoal</span>
+              </button>
              <button
                onClick={() => setView('input_soal')}
                className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
