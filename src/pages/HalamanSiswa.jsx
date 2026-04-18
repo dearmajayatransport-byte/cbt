@@ -29,11 +29,11 @@ function LoginSiswa({ onLogin }) {
       // Allow login if already completed (to view results) or still active
       // Update status menjadi online if not yet completed
       if (data.nilai === null && !data.selesai_at) {
-        // Still active, set online
-        await supabase.from('siswa').update({
+        const { error: loginError } = await supabase.from('siswa').update({
           status_login: 'online',
           login_at: new Date().toISOString()
         }).eq('id', data.id)
+        if (loginError) console.error('Login update error:', loginError)
         onLogin({ ...data, status_login: 'online' })
       } else {
         // Already completed - allow login to view results
@@ -195,12 +195,13 @@ function HalamanUjian({ siswa, soalList, onSelesai, onLogout }) {
     const benar = soalList.filter(s => jawaban[s.nomor] === s.jawaban_benar).length
     const nilai = Math.round((benar / totalSoal) * 100)
 
-    await supabase.from('siswa').update({
+    const { error: submitError } = await supabase.from('siswa').update({
       status_login: 'selesai',
       nilai,
       jawaban,
       selesai_at: new Date().toISOString()
     }).eq('id', siswa.id)
+    if (submitError) console.error('Submit error:', submitError)
 
     onSelesai(nilai, jawaban)
     setSubmitting(false)
@@ -605,10 +606,11 @@ export default function HalamanSiswa() {
   const triggerLogout = async () => {
     selfLogoutRef.current = true
     if (siswa) {
-      await supabase.from('siswa').update({
+      const { error: logoutError } = await supabase.from('siswa').update({
         status_login: 'offline',
         login_at: null
       }).eq('id', siswa.id)
+      if (logoutError) console.error('Logout error:', logoutError)
     }
     forceLogout()
   }

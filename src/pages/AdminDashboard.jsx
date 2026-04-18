@@ -252,23 +252,24 @@ export default function AdminDashboard() {
     channelRef.current = channel
   }
 
-   const handleLogoutSiswa = async (siswa) => {
-     await supabase.from('siswa').update({
-       status_login: 'offline',
-       login_at: null
-     }).eq('id', siswa.id)
-     // Real-time will update the list
+const handleLogoutSiswa = async (siswa) => {
+      const { error } = await supabase.from('siswa').update({
+        status_login: 'offline',
+        login_at: null
+      }).eq('id', siswa.id)
+      if (error) console.error('Logout error:', error)
    }
 
-   const updateStatus = async (newStatus) => {
-     setLoading(prev => ({ ...prev, [newStatus]: true }))
-     const { error } = await supabase
-       .from('konfigurasi_ujian')
-       .update({ status: newStatus, updated_at: new Date().toISOString() })
-       .eq('id', 1)
-     if (!error) setStatusUjian(newStatus)
-     setLoading(prev => ({ ...prev, [newStatus]: false }))
-     setKonfirmasi(null)
+const updateStatus = async (newStatus) => {
+      setLoading(prev => ({ ...prev, [newStatus]: true }))
+      const { error } = await supabase
+        .from('konfigurasi_ujian')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', 1)
+      if (error) console.error('Update status error:', error)
+      if (!error) setStatusUjian(newStatus)
+      setLoading(prev => ({ ...prev, [newStatus]: false }))
+      setKonfirmasi(null)
    }
 
    const openUjianBaru = () => {
@@ -302,8 +303,10 @@ export default function AdminDashboard() {
 
   const handleResetUjian = async () => {
     setLoading(prev => ({ ...prev, reset: true }))
-    await supabase.from('konfigurasi_ujian').update({ status: 'standby' }).eq('id', 1)
-    await supabase.from('siswa').update({ status_login: 'offline', nilai: null, jawaban: null, selesai_at: null, login_at: null })
+    const { error: err1 } = await supabase.from('konfigurasi_ujian').update({ status: 'standby' }).eq('id', 1)
+    const { error: err2 } = await supabase.from('siswa').update({ status_login: 'offline', nilai: null, jawaban: null, selesai_at: null, login_at: null })
+    if (err1) console.error('Reset konfigurasi error:', err1)
+    if (err2) console.error('Reset siswa error:', err2)
     setSiswaList(prev => prev.map(s => ({ ...s, status_login: 'offline', nilai: null })))
     setStatusUjian('standby')
     setLoading(prev => ({ ...prev, reset: false }))

@@ -134,7 +134,8 @@ function ModalToken({ siswa, onClose, onUpdated }) {
 
   const handleSave = async () => {
     setLoading(true)
-    await supabase.from('siswa').update({ password: token }).eq('id', siswa.id)
+    const { error } = await supabase.from('siswa').update({ password: token }).eq('id', siswa.id)
+    if (error) console.error('Token save error:', error)
     setLoading(false)
     onUpdated()
     onClose()
@@ -366,7 +367,8 @@ function ModalTokenMassal({ jh, ruangan, siswaList, onClose, onUpdated }) {
   const handleSave = async () => {
     setLoading(true)
     for (const s of tokens) {
-      await supabase.from('siswa').update({ password: s.token_baru }).eq('id', s.id)
+      const { error } = await supabase.from('siswa').update({ password: s.token_baru }).eq('id', s.id)
+      if (error) console.error('Token update error:', error)
     }
     setLoading(false); setDone(true)
     onUpdated()
