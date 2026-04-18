@@ -1,0 +1,10 @@
+-- Disable RLS untuk semua tabel
+ALTER TABLE test DISABLE ROW LEVEL SECURITY;
+ALTER TABLE konfigurasi_ujian DISABLE ROW LEVEL SECURITY;
+ALTER TABLE soal DISABLE ROW LEVEL SECURITY;
+ALTER TABLE siswa DISABLE ROW LEVEL SECURITY;
+
+-- Atau jika ingin menggunakananon key, grant permissions:
+-- GRANT ALL ON ALL TABLES TO anon;
+-- GRANT ALL ON ALL SEQUENCES TO anon;
+-- GRANT ALL ON ALL FUNCTIONS TO anon;
