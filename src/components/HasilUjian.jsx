@@ -1,5 +1,5 @@
 // src/components/HasilUjian.jsx
-export default function HasilUjian({ siswa, soalList }) {
+export default function HasilUjian({ siswa, soalList, onLogout }) {
   const nilai = siswa?.nilai ?? 0
   const jawaban = siswa?.jawaban ?? {}
 
@@ -23,6 +23,16 @@ export default function HasilUjian({ siswa, soalList }) {
 
         {/* Header nilai */}
         <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 mb-6 text-center">
+          <div className="flex justify-end mb-2">
+            {siswa.status_login === 'online' && (
+              <button
+                onClick={onLogout}
+                className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded text-slate-300 transition-colors"
+              >
+                Keluar
+              </button>
+            )}
+          </div>
           <div className="text-slate-400 text-sm mb-1">Hasil Ujian</div>
           <div className="text-2xl font-bold text-white mb-4">
             {siswa?.nama}

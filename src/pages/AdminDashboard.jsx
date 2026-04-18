@@ -73,10 +73,13 @@ function LoginAdmin({ onLogin }) {
 }
 
 // ─── Monitoring Tabel ─────────────────────────────────────────────────────────
-function TabelMonitoring({ siswaList, statusUjian }) {
-  const selesai = siswaList.filter(s => s.status_login === 'selesai').length
-  const mengerjakan = siswaList.filter(s => s.status_login === 'online').length
-  const offline = siswaList.filter(s => s.status_login === 'offline').length
+function TabelMonitoring({ siswaList, statusUjian, showOnlineOnly, onLogout }) {
+  const displayedSiswa = showOnlineOnly
+    ? siswaList.filter(s => s.status_login !== 'offline')
+    : siswaList
+  const selesai = displayedSiswa.filter(s => s.status_login === 'selesai').length
+  const mengerjakan = displayedSiswa.filter(s => s.status_login === 'online').length
+  const offline = displayedSiswa.filter(s => s.status_login === 'offline').length
 
   return (
     <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
@@ -108,17 +111,18 @@ function TabelMonitoring({ siswaList, statusUjian }) {
               <th className="px-4 py-3 text-center">Status</th>
               <th className="px-4 py-3 text-center">Nilai</th>
               <th className="px-4 py-3 text-left">Selesai Pada</th>
+              <th className="px-4 py-3 text-center">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
-            {siswaList.length === 0 ? (
+            {displayedSiswa.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-600 text-xs">
-                  Belum ada data siswa
+                <td colSpan={8} className="px-4 py-8 text-center text-slate-600 text-xs">
+                  {showOnlineOnly ? 'Tidak ada siswa yang aktif.' : 'Belum ada data siswa'}
                 </td>
               </tr>
             ) : (
-              siswaList.map((siswa, i) => {
+              displayedSiswa.map((siswa, i) => {
                 const st = STATUS_SISWA[siswa.status_login] || STATUS_SISWA.offline
                 return (
                   <tr key={siswa.id} className="hover:bg-slate-800/50 transition-colors">
@@ -147,6 +151,19 @@ function TabelMonitoring({ siswaList, statusUjian }) {
                     <td className="px-4 py-3 text-slate-500 text-xs">
                       {siswa.selesai_at ? new Date(siswa.selesai_at).toLocaleTimeString('id-ID') : '-'}
                     </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        {siswa.status_login === 'online' && (
+                          <button
+                            onClick={() => onLogout(siswa)}
+                            title="Keluar siswa"
+                            className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded text-slate-300 transition-colors"
+                          >
+                            Keluar
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 )
               })
@@ -167,6 +184,7 @@ export default function AdminDashboard() {
   const [jumlahSoal, setJumlahSoal] = useState(0)
   const [loading, setLoading] = useState({})
   const [konfirmasi, setKonfirmasi] = useState(null) // 'mulai' | 'selesai' | 'reset' | 'rilis'
+  const [showOnlineOnly, setShowOnlineOnly] = useState(true)
   const channelRef = useRef(null)
 
   useEffect(() => {
@@ -206,6 +224,14 @@ export default function AdminDashboard() {
       })
       .subscribe()
     channelRef.current = channel
+  }
+
+  const handleLogoutSiswa = async (siswa) => {
+    await supabase.from('siswa').update({
+      status_login: 'offline',
+      login_at: null
+    }).eq('id', siswa.id)
+    // Real-time will update the list
   }
 
   const updateStatus = async (newStatus) => {
@@ -399,14 +425,31 @@ export default function AdminDashboard() {
             <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
               Monitor Peserta
             </h2>
-            <button
-              onClick={fetchAwal}
-              className="text-xs text-slate-500 hover:text-white transition-colors flex items-center gap-1"
-            >
-              🔄 Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowOnlineOnly(!showOnlineOnly)}
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 ${
+                  showOnlineOnly
+                    ? 'bg-amber-500/10 border-amber-600 text-amber-400'
+                    : 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {showOnlineOnly ? '👁️ Aktif saja' : '👁️‍🗨️ Semua'}
+              </button>
+              <button
+                onClick={fetchAwal}
+                className="text-xs text-slate-500 hover:text-white transition-colors flex items-center gap-1"
+              >
+                🔄 Refresh
+              </button>
+            </div>
           </div>
-          <TabelMonitoring siswaList={siswaList} statusUjian={statusUjian} />
+          <TabelMonitoring
+            siswaList={siswaList}
+            statusUjian={statusUjian}
+            showOnlineOnly={showOnlineOnly}
+            onLogout={handleLogoutSiswa}
+          />
         </div>
       </div>
 

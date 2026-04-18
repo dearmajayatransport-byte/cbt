@@ -25,6 +25,13 @@ function LoginSiswa({ onLogin }) {
         setError('Nomor peserta atau password salah.')
         return
       }
+
+      // Prevent login if already completed
+      if (data.nilai !== null || data.selesai_at) {
+        setError('Anda sudah menyelesaikan ujian. Tidak dapat login kembali.')
+        return
+      }
+
       // Update status menjadi online
       await supabase.from('siswa').update({
         status_login: 'online',
@@ -96,7 +103,7 @@ function LoginSiswa({ onLogin }) {
 }
 
 // ─── Ruang Tunggu Sebelum Ujian ───────────────────────────────────────────────
-function RuangTungguMulai({ siswa }) {
+function RuangTungguMulai({ siswa, onLogout }) {
   const [dots, setDots] = useState('.')
   useEffect(() => {
     const t = setInterval(() => setDots(d => d.length >= 3 ? '.' : d + '.'), 500)
@@ -128,13 +135,21 @@ function RuangTungguMulai({ siswa }) {
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
           Terhubung ke server · Status: Online
         </div>
+        <div className="mt-6">
+          <button
+            onClick={onLogout}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-300 transition-colors"
+          >
+            ← Keluar
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
 // ─── Halaman Ujian ─────────────────────────────────────────────────────────────
-function HalamanUjian({ siswa, soalList, onSelesai }) {
+function HalamanUjian({ siswa, soalList, onSelesai, onLogout }) {
   const totalSoal = soalList.length
   const [currentIndex, setCurrentIndex] = useState(0)
   const [jawaban, setJawaban] = useState({})
@@ -206,8 +221,16 @@ function HalamanUjian({ siswa, soalList, onSelesai }) {
           <span className="text-slate-600">·</span>
           <span className="text-xs text-slate-400">{sudahDijawab}/{totalSoal} dijawab</span>
         </div>
-        <div className={`font-black text-lg tabular-nums ${waktuKritis ? 'text-red-400 animate-pulse' : 'text-amber-400'}`}>
-          ⏱ {formatWaktu(waktuSisa)}
+        <div className="flex items-center gap-3">
+          <div className={`font-black text-lg tabular-nums ${waktuKritis ? 'text-red-400 animate-pulse' : 'text-amber-400'}`}>
+            ⏱ {formatWaktu(waktuSisa)}
+          </div>
+          <button
+            onClick={onLogout}
+            className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded text-slate-300 transition-colors"
+          >
+            Keluar
+          </button>
         </div>
       </div>
 
@@ -355,7 +378,7 @@ function HalamanUjian({ siswa, soalList, onSelesai }) {
 }
 
 // ─── Ruang Tunggu Setelah Submit ──────────────────────────────────────────────
-function RuangTungguNilai({ siswa }) {
+function RuangTungguNilai({ siswa, onLogout }) {
   const [dots, setDots] = useState('')
   const [step, setStep] = useState(0)
 
@@ -389,10 +412,10 @@ function RuangTungguNilai({ siswa }) {
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 mt-4">
             <div className="flex items-center gap-2 justify-center mb-2">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />
-              <p className="text-amber-400 font-medium text-sm">Menunggu instruksi Admin</p>
+              <p className="text-amber-400 font-medium text-sm">Menunggu penilaian Guru</p>
             </div>
             <p className="text-slate-500 text-xs">
-              Nilai akan ditampilkan setelah Admin merilis hasil.
+              Nilai akan ditampilkan setelah Guru merilis hasil.
               <br />Tetap di halaman ini.
             </p>
           </div>
@@ -402,6 +425,16 @@ function RuangTungguNilai({ siswa }) {
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
           Terhubung realtime · Memantau status ujian
         </div>
+        {siswa.status_login === 'online' && (
+          <div className="mt-6">
+            <button
+              onClick={onLogout}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-300 transition-colors"
+            >
+              ← Keluar
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -409,17 +442,41 @@ function RuangTungguNilai({ siswa }) {
 
 // ─── MAIN HALAMAN SISWA ────────────────────────────────────────────────────────
 export default function HalamanSiswa() {
-  const [phase, setPhase] = useState('login') 
-  // 'login' | 'tunggu_mulai' | 'ujian' | 'tunggu_nilai' | 'hasil'
+  const [phase, setPhase] = useState('login')
   const [siswa, setSiswa] = useState(null)
   const [soalList, setSoalList] = useState([])
   const [nilaiAkhir, setNilaiAkhir] = useState(null)
   const [jawabanFinal, setJawabanFinal] = useState({})
   const channelRef = useRef(null)
+  const selfLogoutRef = useRef(false)
 
-  // Subscribe ke Supabase Realtime setelah login
+  // Restore session from localStorage on mount
+  useEffect(() => {
+    const savedSiswaId = localStorage.getItem('siswa_id')
+    if (savedSiswaId) {
+      supabase.from('siswa').select('*').eq('id', savedSiswaId).single()
+        .then(({ data }) => {
+          if (data && (data.status_login === 'online' || data.status_login === 'selesai')) {
+            setSiswa(data)
+            // If already completed and nilai exists, go straight to hasil
+            if (data.status_login === 'selesai' && data.nilai !== null) {
+              setPhase('hasil')
+            } else {
+              setPhase('tunggu_mulai')
+            }
+          } else {
+            localStorage.removeItem('siswa_id')
+          }
+        })
+    }
+  }, [])
+
+  // Subscribe to Supabase Realtime after login
   useEffect(() => {
     if (!siswa) return
+
+    // Save student ID to localStorage on login
+    localStorage.setItem('siswa_id', siswa.id)
 
     const channel = supabase
       .channel(`ujian-siswa-${siswa.id}`)
@@ -431,9 +488,31 @@ export default function HalamanSiswa() {
           if (newStatus === 'mulai' && phase === 'tunggu_mulai') {
             fetchSoal()
           } else if (newStatus === 'tampilkan_nilai' && phase === 'tunggu_nilai') {
-            setPhase('hasil')
+            // Refresh student data and show results
+            supabase.from('siswa').select('*').eq('id', siswa.id).single()
+              .then(({ data }) => {
+                if (data) {
+                  setSiswa(data)
+                  setPhase('hasil')
+                }
+              })
           } else if (newStatus === 'standby') {
-            // Reset
+            // Reset to login if ujian resets
+            forceLogout()
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'siswa', filter: `id=eq.${siswa.id}` },
+        (payload) => {
+          // If admin sets status to offline, logout student
+          if (payload.new.status_login === 'offline' && phase !== 'login') {
+            if (selfLogoutRef.current) {
+              selfLogoutRef.current = false
+              return
+            }
+            forceLogout()
           }
         }
       )
@@ -441,33 +520,52 @@ export default function HalamanSiswa() {
 
     channelRef.current = channel
 
-    // Cek status awal saat mount
-    checkStatusAwal()
+    // Check initial status
+    checkStatusAwal(siswa)
 
     return () => {
       supabase.removeChannel(channel)
     }
   }, [siswa, phase])
 
-  const checkStatusAwal = async () => {
-    const { data } = await supabase
+  const checkStatusAwal = async (currentSiswa) => {
+    const { data: cfg } = await supabase
       .from('konfigurasi_ujian')
       .select('status')
       .eq('id', 1)
       .single()
+    const globalStatus = cfg?.status
 
-    if (data?.status === 'mulai') {
+    // If student is offline, clear session
+    if (currentSiswa.status_login === 'offline') {
+      localStorage.removeItem('siswa_id')
+      return
+    }
+
+    if (globalStatus === 'mulai') {
+      // Ujian dimulai, load soal
       await fetchSoal()
-    } else if (data?.status === 'tampilkan_nilai') {
-      // Jika siswa sudah selesai, langsung tampilkan hasil
+    } else if (globalStatus === 'tampilkan_nilai') {
+      // Nilai dirilis, tampilkan hasil
       const { data: dataSiswa } = await supabase
         .from('siswa')
         .select('*')
-        .eq('id', siswa.id)
+        .eq('id', currentSiswa.id)
         .single()
       if (dataSiswa?.nilai !== null) {
         setSiswa(dataSiswa)
         setPhase('hasil')
+      }
+    } else {
+      // standby, selesai, or other
+      if (currentSiswa.status_login === 'selesai') {
+        // Sudah mengumpulkan, tunggu hasil
+        setSiswa(currentSiswa)
+        setPhase('tunggu_nilai')
+      } else if (currentSiswa.status_login === 'online') {
+        // Masih aktif, tunggu mulai atau sedang ujian
+        setSiswa(currentSiswa)
+        setPhase('tunggu_mulai')
       }
     }
   }
@@ -488,6 +586,28 @@ export default function HalamanSiswa() {
     setPhase('tunggu_mulai')
   }
 
+  const forceLogout = () => {
+    localStorage.removeItem('siswa_id')
+    setSiswa(null)
+    setPhase('login')
+    setSoalList([])
+    setNilaiAkhir(null)
+    setJawabanFinal({})
+  }
+
+  const triggerLogout = async () => {
+    selfLogoutRef.current = true
+    if (siswa) {
+      await supabase.from('siswa').update({
+        status_login: 'offline',
+        login_at: null
+      }).eq('id', siswa.id)
+    }
+    forceLogout()
+  }
+
+  const handleLogout = triggerLogout
+
   const handleSelesaiUjian = (nilai, jawaban) => {
     setNilaiAkhir(nilai)
     setJawabanFinal(jawaban)
@@ -496,17 +616,18 @@ export default function HalamanSiswa() {
   }
 
   if (phase === 'login') return <LoginSiswa onLogin={handleLogin} />
-  if (phase === 'tunggu_mulai') return <RuangTungguMulai siswa={siswa} />
+  if (phase === 'tunggu_mulai') return <RuangTungguMulai siswa={siswa} onLogout={handleLogout} />
   if (phase === 'ujian') return (
     <HalamanUjian
       siswa={siswa}
       soalList={soalList}
       onSelesai={handleSelesaiUjian}
+      onLogout={handleLogout}
     />
   )
-  if (phase === 'tunggu_nilai') return <RuangTungguNilai siswa={siswa} />
+  if (phase === 'tunggu_nilai') return <RuangTungguNilai siswa={siswa} onLogout={handleLogout} />
   if (phase === 'hasil') return (
-    <HasilUjian siswa={siswa} soalList={soalList} />
+    <HasilUjian siswa={siswa} soalList={soalList} onLogout={handleLogout} />
   )
   return null
 }
