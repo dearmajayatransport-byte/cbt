@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 
 const JUMLAH_SOAL = 10
@@ -12,14 +12,58 @@ const soalKosong = () => ({
   jawaban_benar: 'A',
 })
 
-export default function InputSoal({ onBack }) {
+export default function InputSoal({ onBack, testId }) {
   const [soalList, setSoalList] = useState(
     Array.from({ length: JUMLAH_SOAL }, soalKosong)
   )
   const [loading, setLoading] = useState(false)
-  const [status, setStatus] = useState(null) // { type: 'success'|'error', msg }
+  const [status, setStatus] = useState(null)
   const [activeTab, setActiveTab] = useState(0)
   const [validasi, setValidasi] = useState({})
+
+  // Load questions for current test
+  useEffect(() => {
+    if (testId) {
+      loadSoalFromDB()
+    } else {
+      setSoalList(Array.from({ length: JUMLAH_SOAL }, soalKosong))
+    }
+  }, [testId])
+
+  const loadSoalFromDB = async () => {
+    if (!testId) return
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('soal')
+        .select('*')
+        .eq('test_id', testId)
+        .order('nomor', { ascending: true })
+      if (error) throw error
+      if (data && data.length > 0) {
+        const mapped = Array.from({ length: JUMLAH_SOAL }, (_, i) => {
+          const found = data.find(d => d.nomor === i + 1)
+          return found ? {
+            pertanyaan: found.pertanyaan,
+            opsi_a: found.opsi_a,
+            opsi_b: found.opsi_b,
+            opsi_c: found.opsi_c,
+            opsi_d: found.opsi_d,
+            jawaban_benar: found.jawaban_benar,
+          } : soalKosong()
+        })
+        setSoalList(mapped)
+        setStatus({ type: 'success', msg: '✅ Data soal berhasil dimuat.' })
+      } else {
+        setSoalList(Array.from({ length: JUMLAH_SOAL }, soalKosong))
+        setStatus({ type: null, msg: '' })
+      }
+    } catch (err) {
+      setStatus({ type: 'error', msg: `Gagal memuat: ${err.message}` })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleChange = (index, field, value) => {
     setSoalList(prev => {
@@ -27,7 +71,6 @@ export default function InputSoal({ onBack }) {
       updated[index] = { ...updated[index], [field]: value }
       return updated
     })
-    // Clear validasi error saat user mengetik
     setValidasi(prev => {
       const next = { ...prev }
       delete next[`${index}_${field}`]
@@ -68,16 +111,22 @@ export default function InputSoal({ onBack }) {
       return
     }
 
+    if (!testId) {
+      setStatus({ type: 'error', msg: 'Test ID tidak ditemukan. Pilih test terlebih dahulu.' })
+      return
+    }
+
     setLoading(true)
     setStatus(null)
 
     try {
-      // Hapus soal lama dulu
-      const { error: delError } = await supabase.from('soal').delete().gte('id', 0)
+      // Hapus soal lama untuk test ini
+      const { error: delError } = await supabase.from('soal').delete().eq('test_id', testId)
       if (delError) throw delError
 
       // Insert soal baru
       const payload = soalList.map((soal, i) => ({
+        test_id: testId,
         nomor: i + 1,
         pertanyaan: soal.pertanyaan.trim(),
         opsi_a: soal.opsi_a.trim(),
@@ -93,38 +142,6 @@ export default function InputSoal({ onBack }) {
       setStatus({ type: 'success', msg: '✅ 10 soal berhasil disimpan ke database!' })
     } catch (err) {
       setStatus({ type: 'error', msg: `❌ Gagal menyimpan: ${err.message}` })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const loadSoalDariDB = async () => {
-    setLoading(true)
-    try {
-      const { data, error } = await supabase
-        .from('soal')
-        .select('*')
-        .order('nomor', { ascending: true })
-      if (error) throw error
-      if (data && data.length > 0) {
-        const mapped = Array.from({ length: JUMLAH_SOAL }, (_, i) => {
-          const found = data.find(d => d.nomor === i + 1)
-          return found ? {
-            pertanyaan: found.pertanyaan,
-            opsi_a: found.opsi_a,
-            opsi_b: found.opsi_b,
-            opsi_c: found.opsi_c,
-            opsi_d: found.opsi_d,
-            jawaban_benar: found.jawaban_benar,
-          } : soalKosong()
-        })
-        setSoalList(mapped)
-        setStatus({ type: 'success', msg: '✅ Data soal berhasil dimuat dari database.' })
-      } else {
-        setStatus({ type: 'error', msg: 'Belum ada soal di database.' })
-      }
-    } catch (err) {
-      setStatus({ type: 'error', msg: `Gagal memuat: ${err.message}` })
     } finally {
       setLoading(false)
     }
@@ -148,13 +165,14 @@ export default function InputSoal({ onBack }) {
               ← Kembali
             </button>
             <span className="text-slate-600">|</span>
-            <h1 className="text-lg font-bold text-amber-400">📝 Input Bank Soal</h1>
+            <h1 className="text-lg font-bold text-amber-400">📝 Input Soal</h1>
+            {testId && <span className="text-xs text-emerald-400 ml-2">Test ID: {testId}</span>}
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={loadSoalDariDB}
-              disabled={loading}
-              className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
+              onClick={loadSoalFromDB}
+              disabled={loading || !testId}
+              className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-50"
             >
               🔄 Muat dari DB
             </button>

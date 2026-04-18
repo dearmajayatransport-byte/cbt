@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import InputSoal from '../components/InputSoal'
 import DataSiswa from '../components/DataSiswa'
+import ManageTests from '../components/ManageTests'
 
 const STATUS_LABEL = {
   standby: { label: 'Standby', color: 'text-slate-400', bg: 'bg-slate-800', border: 'border-slate-600', dot: 'bg-slate-400' },
@@ -184,14 +185,19 @@ export default function AdminDashboard() {
   const [view, setView] = useState('dashboard')
   const [statusUjian, setStatusUjian] = useState('standby')
   const [namaUjian, setNamaUjian] = useState('Ujian Online')
+  const [currentTest, setCurrentTest] = useState(null)
+  const [kelasTarget, setKelasTarget] = useState('')
   const [siswaList, setSiswaList] = useState([])
   const [jumlahSoal, setJumlahSoal] = useState(0)
   const [loading, setLoading] = useState({})
   const [konfirmasi, setKonfirmasi] = useState(null)
   const [showOnlineOnly, setShowOnlineOnly] = useState(true)
-  const [modalTestBaru, setModalTestBaru] = useState(false)
-  const [namaTestBaru, setNamaTestBaru] = useState('')
-  const [hapusSoalLama, setHapusSoalLama] = useState(false)
+  const [modalUjianBaru, setModalUjianBaru] = useState(false)
+  const [tests, setTests] = useState([])
+  const [kelasList, setKelasList] = useState([])
+  const [selectedTestId, setSelectedTestId] = useState('')
+  const [selectedKelas, setSelectedKelas] = useState('')
+  const [namaUjianBaru, setNamaUjianBaru] = useState('')
   const channelRef = useRef(null)
 
   useEffect(() => {
@@ -204,17 +210,26 @@ export default function AdminDashboard() {
   }, [loggedIn])
 
   const fetchAwal = async () => {
-    const [{ data: cfg }, { data: sw }, { data: sq }] = await Promise.all([
-      supabase.from('konfigurasi_ujian').select('status, nama_ujian').eq('id', 1).single(),
+    const [{ data: cfg }, { data: sw }, { data: sq }, { data: testsData }, { data: kelasData }] = await Promise.all([
+      supabase.from('konfigurasi_ujian').select('status, nama_ujian, test_id, kelas_target').eq('id', 1).single(),
       supabase.from('siswa').select('*').order('nomor_peserta'),
       supabase.from('soal').select('id'),
+      supabase.from('test').select('*').order('created_at', { ascending: true }),
+      supabase.from('siswa').select('kelas').not('kelas', 'is', null),
     ])
     if (cfg) {
       setStatusUjian(cfg.status)
       setNamaUjian(cfg.nama_ujian || 'Ujian Online')
+      setCurrentTest(cfg.test_id)
+      setKelasTarget(cfg.kelas_target || '')
     }
     if (sw) setSiswaList(sw)
     if (sq) setJumlahSoal(sq.length)
+    if (testsData) setTests(testsData)
+    if (kelasData) {
+      const unique = [...new Set(kelasData.map(k => k.kelas).filter(Boolean))]
+      setKelasList(unique)
+    }
   }
 
   const setupRealtime = () => {
@@ -237,42 +252,53 @@ export default function AdminDashboard() {
     channelRef.current = channel
   }
 
-  const handleLogoutSiswa = async (siswa) => {
-    await supabase.from('siswa').update({
-      status_login: 'offline',
-      login_at: null
-    }).eq('id', siswa.id)
-    // Real-time will update the list
-  }
+   const handleLogoutSiswa = async (siswa) => {
+     await supabase.from('siswa').update({
+       status_login: 'offline',
+       login_at: null
+     }).eq('id', siswa.id)
+     // Real-time will update the list
+   }
 
-  const updateStatus = async (newStatus) => {
-    setLoading(prev => ({ ...prev, [newStatus]: true }))
-    const { error } = await supabase
-      .from('konfigurasi_ujian')
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
-      .eq('id', 1)
-    if (!error) setStatusUjian(newStatus)
-    setLoading(prev => ({ ...prev, [newStatus]: false }))
-    setKonfirmasi(null)
-  }
+   const updateStatus = async (newStatus) => {
+     setLoading(prev => ({ ...prev, [newStatus]: true }))
+     const { error } = await supabase
+       .from('konfigurasi_ujian')
+       .update({ status: newStatus, updated_at: new Date().toISOString() })
+       .eq('id', 1)
+     if (!error) setStatusUjian(newStatus)
+     setLoading(prev => ({ ...prev, [newStatus]: false }))
+     setKonfirmasi(null)
+   }
 
-  const handleTestBaru = () => {
-    setNamaTestBaru(namaUjian)
-    setHapusSoalLama(false)
-    setModalTestBaru(true)
-  }
+   const openUjianBaru = () => {
+     setSelectedTestId(currentTest || '')
+     setSelectedKelas(kelasTarget || '')
+     setNamaUjianBaru(namaUjian)
+     setModalUjianBaru(true)
+   }
 
-  const confirmTestBaru = async () => {
-    setLoading(prev => ({ ...prev, test_baru: true }))
-    // Update nama ujian
-    await supabase.from('konfigurasi_ujian').update({
-      nama_ujian: namaTestBaru,
-      updated_at: new Date().toISOString()
-    }).eq('id', 1)
-    setNamaUjian(namaTestBaru)
-    setModalTestBaru(false)
-    setLoading(prev => ({ ...prev, test_baru: false }))
-  }
+   const saveUjianBaru = async () => {
+     if (!selectedTestId) return alert('Pilih test terlebih dahulu')
+     setLoading(prev => ({ ...prev, ujian_baru: true }))
+     const updateData = {
+       test_id: parseInt(selectedTestId),
+       status: 'standby',
+       updated_at: new Date().toISOString()
+     }
+     if (namaUjianBaru.trim()) updateData.nama_ujian = namaUjianBaru.trim()
+     if (selectedKelas) updateData.kelas_target = selectedKelas
+
+     const { error } = await supabase.from('konfigurasi_ujian').update(updateData).eq('id', 1)
+     if (!error) {
+       setCurrentTest(parseInt(selectedTestId))
+       setKelasTarget(selectedKelas)
+       setNamaUjian(namaUjianBaru.trim() || 'Ujian Online')
+       setModalUjianBaru(false)
+       fetchAwal()
+     }
+     setLoading(prev => ({ ...prev, ujian_baru: false }))
+   }
 
   const handleResetUjian = async () => {
     setLoading(prev => ({ ...prev, reset: true }))
@@ -294,9 +320,10 @@ export default function AdminDashboard() {
 
   const stInfo = STATUS_LABEL[statusUjian] || STATUS_LABEL.standby
 
-  if (!loggedIn) return <LoginAdmin onLogin={() => setLoggedIn(true)} />
-  if (view === 'input_soal') return <InputSoal onBack={() => { setView('dashboard'); fetchAwal() }} />
-  if (view === 'data_siswa') return <DataSiswa onBack={() => setView('dashboard')} />
+   if (!loggedIn) return <LoginAdmin onLogin={() => setLoggedIn(true)} />
+   if (view === 'input_soal') return <InputSoal onBack={() => { setView('dashboard'); fetchAwal() }} testId={selectedTestId} />
+   if (view === 'data_siswa') return <DataSiswa onBack={() => setView('dashboard')} />
+   if (view === 'manage_tests') return <ManageTests onBack={() => { setView('dashboard'); fetchAwal() }} />
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-mono">
@@ -318,17 +345,23 @@ export default function AdminDashboard() {
                👥 <span className="hidden sm:inline">Data Siswa</span>
              </button>
              <button
+               onClick={() => setView('manage_tests')}
+               className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
+             >
+               📚 <span className="hidden sm:inline">Kelola Test</span>
+               {tests.length > 0 && <span className="text-xs text-amber-400">({tests.length})</span>}
+             </button>
+             <button
                onClick={() => setView('input_soal')}
                className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
              >
                📝 <span className="hidden sm:inline">Input Soal</span>
-               {jumlahSoal > 0 && <span className="text-xs text-amber-400">({jumlahSoal})</span>}
              </button>
              <button
-               onClick={handleTestBaru}
-               className="px-3 py-1.5 text-sm bg-violet-600 hover:bg-violet-500 border border-violet-500 rounded-lg transition-colors flex items-center gap-2"
+               onClick={() => setModalUjianBaru(true)}
+               className="px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 rounded-lg transition-colors flex items-center gap-2"
              >
-               🆕 <span className="hidden sm:inline">Test Baru</span>
+               🆕 <span className="hidden sm:inline">Ujian Baru</span>
              </button>
              <button
                onClick={() => {
@@ -568,64 +601,70 @@ export default function AdminDashboard() {
               </>
             )}
           </div>
-        </div>
+         </div>
        )}
-      {/* Modal Test Baru */}
-      {modalTestBaru && (
+
+      {/* Modal Ujian Baru */}
+      {modalUjianBaru && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+          <div className="bg-slate-900 border border-emerald-700/50 rounded-2xl p-6 w-full max-w-lg shadow-2xl">
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h3 className="font-bold text-white">🆕 Test Baru</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Buat ujian baru dengan nama yang unik</p>
+                <h3 className="font-bold text-white text-lg">🆕 Ujian Baru</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Buat sesi ujian baru dengan pilih test dan kelas</p>
               </div>
-              <button onClick={() => setModalTestBaru(false)} className="text-slate-500 hover:text-white text-xl">×</button>
+              <button onClick={() => setModalUjianBaru(false)} className="text-slate-500 hover:text-white text-xl">×</button>
             </div>
+
             <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1.5 uppercase tracking-wider">Pilih Test *</label>
+                  <select
+                    value={selectedTestId}
+                    onChange={(e) => setSelectedTestId(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  >
+                    <option value="">-- Pilih Test --</option>
+                    {tests.map(t => (
+                      <option key={t.id} value={t.id}>{t.nama_test}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1.5 uppercase tracking-wider">Kelas Target</label>
+                  <select
+                    value={selectedKelas}
+                    onChange={(e) => setSelectedKelas(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  >
+                    <option value="">Semua Kelas</option>
+                    {kelasList.map(k => (
+                      <option key={k} value={k}>{k}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">Kosongkan untuk semua kelas</p>
+                </div>
+              </div>
               <div>
                 <label className="block text-xs text-slate-400 mb-1.5 uppercase tracking-wider">Nama Ujian</label>
                 <input
-                  value={namaTestBaru}
-                  onChange={(e) => setNamaTestBaru(e.target.value)}
-                  placeholder="Contoh: UTS Semester 1"
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-400"
+                  value={namaUjianBaru}
+                  onChange={(e) => setNamaUjianBaru(e.target.value)}
+                  placeholder="Contoh: UTS Ganjil 2025"
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                 />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="hapusSoal"
-                  checked={hapusSoalLama}
-                  onChange={(e) => setHapusSoalLama(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-600 text-violet-600 focus:ring-violet-500"
-                />
-                <label htmlFor="hapusSoal" className="text-sm text-slate-300">Hapus semua soal lama</label>
               </div>
             </div>
+
             <div className="flex gap-3 mt-6">
-              <button onClick={() => { setModalTestBaru(false); setHapusSoalLama(false) }} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-xl text-sm transition-colors">Batal</button>
+              <button onClick={() => { setModalUjianBaru(false); setSelectedTestId(''); setSelectedKelas(''); }} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-xl text-sm transition-colors">Batal</button>
               <button
-                onClick={async () => {
-                  setLoading(prev => ({ ...prev, test_baru: true }))
-                  // Update nama ujian
-                  await supabase.from('konfigurasi_ujian').update({
-                    nama_ujian: namaTestBaru,
-                    updated_at: new Date().toISOString()
-                  }).eq('id', 1)
-                  setNamaUjian(namaTestBaru)
-                  if (hapusSoalLama) {
-                    await supabase.from('soal').delete().neq('id', 0)
-                    setJumlahSoal(0)
-                  }
-                  setModalTestBaru(false)
-                  setLoading(prev => ({ ...prev, test_baru: false }))
-                  setHapusSoalLama(false)
-                  setView('input_soal')
-                }}
-                disabled={loading.test_baru || !namaTestBaru.trim()}
-                className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+                onClick={saveUjianBaru}
+                disabled={loading.ujian_baru || !selectedTestId}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
               >
-                {loading.test_baru ? '⏳ Membuat...' : '✨ Buat Test'}
+                {loading.ujian_baru ? '⏳ Membuat...' : '✨ Buat Ujian'}
               </button>
             </div>
           </div>
