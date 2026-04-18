@@ -103,7 +103,7 @@ function LoginSiswa({ onLogin }) {
 }
 
 // ─── Ruang Tunggu Sebelum Ujian ───────────────────────────────────────────────
-function RuangTungguMulai({ siswa, onLogout }) {
+function RuangTungguMulai({ siswa, onLogout, kelasTarget }) {
   const [dots, setDots] = useState('.')
   useEffect(() => {
     const t = setInterval(() => setDots(d => d.length >= 3 ? '.' : d + '.'), 500)
@@ -127,7 +127,12 @@ function RuangTungguMulai({ siswa, onLogout }) {
           <p className="text-white font-medium mb-1">
             Menunggu Admin memulai ujian{dots}
           </p>
-          <p className="text-slate-500 text-xs">
+          {kelasTarget && (
+            <p className="text-amber-400 text-xs mt-2">
+              Target kelas: {kelasTarget}
+            </p>
+          )}
+          <p className="text-slate-500 text-xs mt-2">
             Harap tetap di halaman ini. Ujian akan dimulai secara otomatis.
           </p>
         </div>
@@ -448,6 +453,7 @@ export default function HalamanSiswa() {
   const [soalList, setSoalList] = useState([])
   const [nilaiAkhir, setNilaiAkhir] = useState(null)
   const [jawabanFinal, setJawabanFinal] = useState({})
+  const [kelasTarget, setKelasTarget] = useState(null)
   const channelRef = useRef(null)
   const selfLogoutRef = useRef(false)
   const phaseRef = useRef(phase)
@@ -487,8 +493,14 @@ export default function HalamanSiswa() {
         { event: 'UPDATE', schema: 'public', table: 'konfigurasi_ujian', filter: 'id=eq.1' },
         (payload) => {
           const newStatus = payload.new.status
+          const newKelasTarget = payload.new.kelas_target
+          
           if (newStatus === 'mulai' && phaseRef.current === 'tunggu_mulai') {
-            fetchSoal()
+            // Check if student matches the target class
+            const cocokKelas = !newKelasTarget || siswa.kelas === newKelasTarget || siswa.kelas?.startsWith(newKelasTarget)
+            if (cocokKelas) {
+              fetchSoal()
+            }
           } else if (newStatus === 'tampilkan_nilai' && phaseRef.current === 'tunggu_nilai') {
             // Refresh student data and show results
             supabase.from('siswa').select('*').eq('id', siswa.id).single()
@@ -533,16 +545,23 @@ export default function HalamanSiswa() {
   const checkStatusAwal = async (currentSiswa) => {
     const { data: cfg } = await supabase
       .from('konfigurasi_ujian')
-      .select('status')
+      .select('status, kelas_target')
       .eq('id', 1)
       .single()
     const globalStatus = cfg?.status
-
+    const target = cfg?.kelas_target
+    
+    // Update kelas target state
+    setKelasTarget(target)
+    
     // If student is offline, clear session
     if (currentSiswa.status_login === 'offline') {
       sessionStorage.removeItem('siswa_id')
       return
     }
+
+    // Check if student matches the target class (for JH 1 - London format)
+    const cocokKelas = !target || currentSiswa.kelas === target || currentSiswa.kelas?.startsWith(target)
 
     // Student has already submitted
     if (currentSiswa.status_login === 'selesai') {
@@ -567,9 +586,13 @@ export default function HalamanSiswa() {
 
     // Student is online (active)
     if (currentSiswa.status_login === 'online') {
-      if (globalStatus === 'mulai') {
+      if (globalStatus === 'mulai' && cocokKelas) {
         // Exam started – go to exam page
         await fetchSoal()
+      } else if (globalStatus === 'mulai' && !cocokKelas) {
+        // Exam started but student is not in target class
+        setSiswa(currentSiswa)
+        setPhase('tunggu_mulai')
       } else {
         // Not started yet – wait
         setSiswa(currentSiswa)
@@ -579,10 +602,22 @@ export default function HalamanSiswa() {
   }
 
   const fetchSoal = async () => {
-    const { data, error } = await supabase
-      .from('soal')
-      .select('*')
-      .order('nomor', { ascending: true })
+    // Get test_id from konfigurasi_ujian
+    const { data: cfg } = await supabase
+      .from('konfigurasi_ujian')
+      .select('test_id')
+      .eq('id', 1)
+      .single()
+    
+    let query = supabase.from('soal').select('*')
+    
+    // If test_id is set, filter by test_id, otherwise get all (for backward compatibility)
+    if (cfg?.test_id) {
+      query = query.eq('test_id', cfg.test_id)
+    }
+    
+    const { data, error } = await query.order('nomor', { ascending: true })
+    
     if (!error && data?.length > 0) {
       setSoalList(data)
       setPhase('ujian')
@@ -625,7 +660,7 @@ export default function HalamanSiswa() {
   }
 
   if (phase === 'login') return <LoginSiswa onLogin={handleLogin} />
-  if (phase === 'tunggu_mulai') return <RuangTungguMulai siswa={siswa} onLogout={handleLogout} />
+  if (phase === 'tunggu_mulai') return <RuangTungguMulai siswa={siswa} onLogout={handleLogout} kelasTarget={kelasTarget} />
   if (phase === 'ujian') return (
     <HalamanUjian
       siswa={siswa}
