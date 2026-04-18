@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import InputSoal from '../components/InputSoal'
+import DataSiswa from '../components/DataSiswa'
 
 const STATUS_LABEL = {
   standby: { label: 'Standby', color: 'text-slate-400', bg: 'bg-slate-800', border: 'border-slate-600', dot: 'bg-slate-400' },
@@ -240,6 +241,7 @@ export default function AdminDashboard() {
 
   if (!loggedIn) return <LoginAdmin onLogin={() => setLoggedIn(true)} />
   if (view === 'input_soal') return <InputSoal onBack={() => { setView('dashboard'); fetchAwal() }} />
+  if (view === 'data_siswa') return <DataSiswa onBack={() => setView('dashboard')} />
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-mono">
@@ -254,6 +256,12 @@ export default function AdminDashboard() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setView('data_siswa')}
+              className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
+            >
+              👥 <span className="hidden sm:inline">Data Siswa</span>
+            </button>
             <button
               onClick={() => setView('input_soal')}
               className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
