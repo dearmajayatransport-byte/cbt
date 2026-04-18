@@ -449,6 +449,12 @@ export default function HalamanSiswa() {
   const [jawabanFinal, setJawabanFinal] = useState({})
   const channelRef = useRef(null)
   const selfLogoutRef = useRef(false)
+  const phaseRef = useRef(phase)
+
+  // Keep phaseRef in sync with current phase
+  useEffect(() => {
+    phaseRef.current = phase
+  }, [phase])
 
   // Restore session from sessionStorage on mount
   useEffect(() => {
@@ -458,11 +464,7 @@ export default function HalamanSiswa() {
         .then(({ data }) => {
           if (data && (data.status_login === 'online' || data.status_login === 'selesai')) {
             setSiswa(data)
-            if (data.status_login === 'selesai' && data.nilai !== null) {
-              setPhase('hasil')
-            } else {
-              setPhase('tunggu_mulai')
-            }
+            // Phase will be determined by checkStatusAwal in the realtime effect
           } else {
             sessionStorage.removeItem('siswa_id')
           }
@@ -484,9 +486,9 @@ export default function HalamanSiswa() {
         { event: 'UPDATE', schema: 'public', table: 'konfigurasi_ujian', filter: 'id=eq.1' },
         (payload) => {
           const newStatus = payload.new.status
-          if (newStatus === 'mulai' && phase === 'tunggu_mulai') {
+          if (newStatus === 'mulai' && phaseRef.current === 'tunggu_mulai') {
             fetchSoal()
-          } else if (newStatus === 'tampilkan_nilai' && phase === 'tunggu_nilai') {
+          } else if (newStatus === 'tampilkan_nilai' && phaseRef.current === 'tunggu_nilai') {
             // Refresh student data and show results
             supabase.from('siswa').select('*').eq('id', siswa.id).single()
               .then(({ data }) => {
@@ -506,7 +508,7 @@ export default function HalamanSiswa() {
         { event: 'UPDATE', schema: 'public', table: 'siswa', filter: `id=eq.${siswa.id}` },
         (payload) => {
           // If admin sets status to offline, logout student
-          if (payload.new.status_login === 'offline' && phase !== 'login') {
+          if (payload.new.status_login === 'offline' && phaseRef.current !== 'login') {
             if (selfLogoutRef.current) {
               selfLogoutRef.current = false
               return
@@ -519,13 +521,13 @@ export default function HalamanSiswa() {
 
     channelRef.current = channel
 
-    // Check initial status
+    // Check initial status only once when siswa首次设置
     checkStatusAwal(siswa)
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [siswa, phase])
+  }, [siswa?.id]) // Only re-create channel when student ID changes
 
   const checkStatusAwal = async (currentSiswa) => {
     const { data: cfg } = await supabase
@@ -541,28 +543,34 @@ export default function HalamanSiswa() {
       return
     }
 
-    if (globalStatus === 'mulai') {
-      // Ujian dimulai, load soal
-      await fetchSoal()
-    } else if (globalStatus === 'tampilkan_nilai') {
-      // Nilai dirilis, tampilkan hasil
-      const { data: dataSiswa } = await supabase
-        .from('siswa')
-        .select('*')
-        .eq('id', currentSiswa.id)
-        .single()
-      if (dataSiswa?.nilai !== null) {
-        setSiswa(dataSiswa)
-        setPhase('hasil')
-      }
-    } else {
-      // standby, selesai, or other
-      if (currentSiswa.status_login === 'selesai') {
-        // Sudah mengumpulkan, tunggu hasil
+    // Student has already submitted
+    if (currentSiswa.status_login === 'selesai') {
+      if (globalStatus === 'tampilkan_nilai') {
+        // Results released – show hasil
+        const { data: dataSiswa } = await supabase
+          .from('siswa')
+          .select('*')
+          .eq('id', currentSiswa.id)
+          .single()
+        if (dataSiswa?.nilai !== null) {
+          setSiswa(dataSiswa)
+          setPhase('hasil')
+        }
+      } else {
+        // Still waiting for teacher to release results
         setSiswa(currentSiswa)
         setPhase('tunggu_nilai')
-      } else if (currentSiswa.status_login === 'online') {
-        // Masih aktif, tunggu mulai atau sedang ujian
+      }
+      return
+    }
+
+    // Student is online (active)
+    if (currentSiswa.status_login === 'online') {
+      if (globalStatus === 'mulai') {
+        // Exam started – go to exam page
+        await fetchSoal()
+      } else {
+        // Not started yet – wait
         setSiswa(currentSiswa)
         setPhase('tunggu_mulai')
       }
@@ -582,12 +590,7 @@ export default function HalamanSiswa() {
 
   const handleLogin = (dataSiswa) => {
     setSiswa(dataSiswa)
-    // If already completed with nilai, go straight to results
-    if (dataSiswa.nilai !== null || dataSiswa.selesai_at) {
-      setPhase('hasil')
-    } else {
-      setPhase('tunggu_mulai')
-    }
+    // Phase will be determined by checkStatusAwal in the realtime effect
   }
 
   const forceLogout = () => {
@@ -615,7 +618,7 @@ export default function HalamanSiswa() {
   const handleSelesaiUjian = (nilai, jawaban) => {
     setNilaiAkhir(nilai)
     setJawabanFinal(jawaban)
-    setSiswa(prev => ({ ...prev, nilai, jawaban, selesai_at: new Date().toISOString() }))
+    setSiswa(prev => ({ ...prev, nilai, jawaban, selesai_at: new Date().toISOString(), status_login: 'selesai' }))
     setPhase('tunggu_nilai')
   }
 
