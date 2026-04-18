@@ -28,6 +28,7 @@ function LoginAdmin({ onLogin }) {
   const handle = (e) => {
     e.preventDefault()
     if (user === ADMIN_USER && pass === ADMIN_PASS) {
+      localStorage.setItem('admin_logged_in', 'true')
       onLogin()
     } else {
       setErr('Username atau password salah.')
@@ -177,14 +178,20 @@ function TabelMonitoring({ siswaList, statusUjian, showOnlineOnly, onLogout }) {
 
 // ─── MAIN ADMIN DASHBOARD ─────────────────────────────────────────────────────
 export default function AdminDashboard() {
-  const [loggedIn, setLoggedIn] = useState(false)
-  const [view, setView] = useState('dashboard') // 'dashboard' | 'input_soal'
+  const [loggedIn, setLoggedIn] = useState(() => {
+    return localStorage.getItem('admin_logged_in') === 'true'
+  })
+  const [view, setView] = useState('dashboard')
   const [statusUjian, setStatusUjian] = useState('standby')
+  const [namaUjian, setNamaUjian] = useState('Ujian Online')
   const [siswaList, setSiswaList] = useState([])
   const [jumlahSoal, setJumlahSoal] = useState(0)
   const [loading, setLoading] = useState({})
-  const [konfirmasi, setKonfirmasi] = useState(null) // 'mulai' | 'selesai' | 'reset' | 'rilis'
+  const [konfirmasi, setKonfirmasi] = useState(null)
   const [showOnlineOnly, setShowOnlineOnly] = useState(true)
+  const [modalTestBaru, setModalTestBaru] = useState(false)
+  const [namaTestBaru, setNamaTestBaru] = useState('')
+  const [hapusSoalLama, setHapusSoalLama] = useState(false)
   const channelRef = useRef(null)
 
   useEffect(() => {
@@ -198,11 +205,14 @@ export default function AdminDashboard() {
 
   const fetchAwal = async () => {
     const [{ data: cfg }, { data: sw }, { data: sq }] = await Promise.all([
-      supabase.from('konfigurasi_ujian').select('status').eq('id', 1).single(),
+      supabase.from('konfigurasi_ujian').select('status, nama_ujian').eq('id', 1).single(),
       supabase.from('siswa').select('*').order('nomor_peserta'),
       supabase.from('soal').select('id'),
     ])
-    if (cfg) setStatusUjian(cfg.status)
+    if (cfg) {
+      setStatusUjian(cfg.status)
+      setNamaUjian(cfg.nama_ujian || 'Ujian Online')
+    }
     if (sw) setSiswaList(sw)
     if (sq) setJumlahSoal(sq.length)
   }
@@ -221,6 +231,7 @@ export default function AdminDashboard() {
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'konfigurasi_ujian', filter: 'id=eq.1' }, (payload) => {
         setStatusUjian(payload.new.status)
+        if (payload.new.nama_ujian) setNamaUjian(payload.new.nama_ujian)
       })
       .subscribe()
     channelRef.current = channel
@@ -243,6 +254,24 @@ export default function AdminDashboard() {
     if (!error) setStatusUjian(newStatus)
     setLoading(prev => ({ ...prev, [newStatus]: false }))
     setKonfirmasi(null)
+  }
+
+  const handleTestBaru = () => {
+    setNamaTestBaru(namaUjian)
+    setHapusSoalLama(false)
+    setModalTestBaru(true)
+  }
+
+  const confirmTestBaru = async () => {
+    setLoading(prev => ({ ...prev, test_baru: true }))
+    // Update nama ujian
+    await supabase.from('konfigurasi_ujian').update({
+      nama_ujian: namaTestBaru,
+      updated_at: new Date().toISOString()
+    }).eq('id', 1)
+    setNamaUjian(namaTestBaru)
+    setModalTestBaru(false)
+    setLoading(prev => ({ ...prev, test_baru: false }))
   }
 
   const handleResetUjian = async () => {
@@ -281,47 +310,60 @@ export default function AdminDashboard() {
               {stInfo.label}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setView('data_siswa')}
-              className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
-            >
-              👥 <span className="hidden sm:inline">Data Siswa</span>
-            </button>
-            <button
-              onClick={() => setView('input_soal')}
-              className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
-            >
-              📝 <span className="hidden sm:inline">Input Soal</span>
-              {jumlahSoal > 0 && <span className="text-xs text-amber-400">({jumlahSoal})</span>}
-            </button>
-            <button
-              onClick={() => setLoggedIn(false)}
-              className="px-3 py-1.5 text-sm text-slate-400 hover:text-white transition-colors"
-            >
-              Logout
-            </button>
-          </div>
+           <div className="flex items-center gap-2">
+             <button
+               onClick={() => setView('data_siswa')}
+               className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
+             >
+               👥 <span className="hidden sm:inline">Data Siswa</span>
+             </button>
+             <button
+               onClick={() => setView('input_soal')}
+               className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
+             >
+               📝 <span className="hidden sm:inline">Input Soal</span>
+               {jumlahSoal > 0 && <span className="text-xs text-amber-400">({jumlahSoal})</span>}
+             </button>
+             <button
+               onClick={handleTestBaru}
+               className="px-3 py-1.5 text-sm bg-violet-600 hover:bg-violet-500 border border-violet-500 rounded-lg transition-colors flex items-center gap-2"
+             >
+               🆕 <span className="hidden sm:inline">Test Baru</span>
+             </button>
+             <button
+               onClick={() => {
+                 localStorage.removeItem('admin_logged_in')
+                 setLoggedIn(false)
+               }}
+               className="px-3 py-1.5 text-sm text-slate-400 hover:text-white transition-colors"
+             >
+               Logout
+             </button>
+           </div>
         </div>
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
-        {/* Panel Kontrol Ujian */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Status Card */}
-          <div className={`rounded-xl border p-5 ${stInfo.bg} ${stInfo.border}`}>
-            <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Status Ujian</p>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`w-3 h-3 rounded-full ${stInfo.dot} ${statusUjian === 'mulai' ? 'animate-pulse' : ''}`} />
-              <p className={`text-lg font-bold ${stInfo.color}`}>{stInfo.label}</p>
-            </div>
-            <p className="text-xs text-slate-500">
-              {statusUjian === 'standby' && 'Ujian belum dimulai'}
-              {statusUjian === 'mulai' && `${siswaOnline.filter(s => s.status_login === 'selesai').length}/${siswaOnline.length} selesai`}
-              {statusUjian === 'selesai' && 'Semua siswa selesai mengerjakan'}
-              {statusUjian === 'tampilkan_nilai' && 'Nilai sudah dirilis ke siswa'}
-            </p>
-          </div>
+         {/* Panel Kontrol Ujian */}
+         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+           {/* Status Card */}
+           <div className={`rounded-xl border p-5 ${stInfo.bg} ${stInfo.border}`}>
+             <div className="flex items-center justify-between mb-2">
+               <p className="text-xs text-slate-500 uppercase tracking-wider">Nama Ujian</p>
+             </div>
+             <h3 className="text-lg font-black text-white mb-3 truncate" title={namaUjian}>{namaUjian}</h3>
+             <p className="text-xs text-slate-500 mb-1">Status Ujian</p>
+             <div className="flex items-center gap-2 mb-1">
+               <span className={`w-3 h-3 rounded-full ${stInfo.dot} ${statusUjian === 'mulai' ? 'animate-pulse' : ''}`} />
+               <p className={`text-lg font-bold ${stInfo.color}`}>{stInfo.label}</p>
+             </div>
+             <p className="text-xs text-slate-500">
+               {statusUjian === 'standby' && 'Ujian belum dimulai'}
+               {statusUjian === 'mulai' && `${siswaOnline.filter(s => s.status_login === 'selesai').length}/${siswaOnline.length} selesai`}
+               {statusUjian === 'selesai' && 'Semua siswa selesai mengerjakan'}
+               {statusUjian === 'tampilkan_nilai' && 'Nilai sudah dirilis ke siswa'}
+             </p>
+           </div>
 
           {/* Soal Card */}
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-5">
@@ -525,6 +567,67 @@ export default function AdminDashboard() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+       )}
+      {/* Modal Test Baru */}
+      {modalTestBaru && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="font-bold text-white">🆕 Test Baru</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Buat ujian baru dengan nama yang unik</p>
+              </div>
+              <button onClick={() => setModalTestBaru(false)} className="text-slate-500 hover:text-white text-xl">×</button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5 uppercase tracking-wider">Nama Ujian</label>
+                <input
+                  value={namaTestBaru}
+                  onChange={(e) => setNamaTestBaru(e.target.value)}
+                  placeholder="Contoh: UTS Semester 1"
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-400"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="hapusSoal"
+                  checked={hapusSoalLama}
+                  onChange={(e) => setHapusSoalLama(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-600 text-violet-600 focus:ring-violet-500"
+                />
+                <label htmlFor="hapusSoal" className="text-sm text-slate-300">Hapus semua soal lama</label>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => { setModalTestBaru(false); setHapusSoalLama(false) }} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-xl text-sm transition-colors">Batal</button>
+              <button
+                onClick={async () => {
+                  setLoading(prev => ({ ...prev, test_baru: true }))
+                  // Update nama ujian
+                  await supabase.from('konfigurasi_ujian').update({
+                    nama_ujian: namaTestBaru,
+                    updated_at: new Date().toISOString()
+                  }).eq('id', 1)
+                  setNamaUjian(namaTestBaru)
+                  if (hapusSoalLama) {
+                    await supabase.from('soal').delete().neq('id', 0)
+                    setJumlahSoal(0)
+                  }
+                  setModalTestBaru(false)
+                  setLoading(prev => ({ ...prev, test_baru: false }))
+                  setHapusSoalLama(false)
+                  setView('input_soal')
+                }}
+                disabled={loading.test_baru || !namaTestBaru.trim()}
+                className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+              >
+                {loading.test_baru ? '⏳ Membuat...' : '✨ Buat Test'}
+              </button>
+            </div>
           </div>
         </div>
       )}

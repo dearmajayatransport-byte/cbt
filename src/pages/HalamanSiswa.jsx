@@ -26,19 +26,19 @@ function LoginSiswa({ onLogin }) {
         return
       }
 
-      // Prevent login if already completed
-      if (data.nilai !== null || data.selesai_at) {
-        setError('Anda sudah menyelesaikan ujian. Tidak dapat login kembali.')
-        return
+      // Allow login if already completed (to view results) or still active
+      // Update status menjadi online if not yet completed
+      if (data.nilai === null && !data.selesai_at) {
+        // Still active, set online
+        await supabase.from('siswa').update({
+          status_login: 'online',
+          login_at: new Date().toISOString()
+        }).eq('id', data.id)
+        onLogin({ ...data, status_login: 'online' })
+      } else {
+        // Already completed - allow login to view results
+        onLogin({ ...data, status_login: data.status_login || 'selesai' })
       }
-
-      // Update status menjadi online
-      await supabase.from('siswa').update({
-        status_login: 'online',
-        login_at: new Date().toISOString()
-      }).eq('id', data.id)
-
-      onLogin({ ...data, status_login: 'online' })
     } catch (e) {
       setError('Terjadi kesalahan. Coba lagi.')
     } finally {
@@ -450,22 +450,21 @@ export default function HalamanSiswa() {
   const channelRef = useRef(null)
   const selfLogoutRef = useRef(false)
 
-  // Restore session from localStorage on mount
+  // Restore session from sessionStorage on mount
   useEffect(() => {
-    const savedSiswaId = localStorage.getItem('siswa_id')
+    const savedSiswaId = sessionStorage.getItem('siswa_id')
     if (savedSiswaId) {
       supabase.from('siswa').select('*').eq('id', savedSiswaId).single()
         .then(({ data }) => {
           if (data && (data.status_login === 'online' || data.status_login === 'selesai')) {
             setSiswa(data)
-            // If already completed and nilai exists, go straight to hasil
             if (data.status_login === 'selesai' && data.nilai !== null) {
               setPhase('hasil')
             } else {
               setPhase('tunggu_mulai')
             }
           } else {
-            localStorage.removeItem('siswa_id')
+            sessionStorage.removeItem('siswa_id')
           }
         })
     }
@@ -475,8 +474,8 @@ export default function HalamanSiswa() {
   useEffect(() => {
     if (!siswa) return
 
-    // Save student ID to localStorage on login
-    localStorage.setItem('siswa_id', siswa.id)
+    // Save student ID to sessionStorage on login
+    sessionStorage.setItem('siswa_id', siswa.id)
 
     const channel = supabase
       .channel(`ujian-siswa-${siswa.id}`)
@@ -538,7 +537,7 @@ export default function HalamanSiswa() {
 
     // If student is offline, clear session
     if (currentSiswa.status_login === 'offline') {
-      localStorage.removeItem('siswa_id')
+      sessionStorage.removeItem('siswa_id')
       return
     }
 
@@ -583,11 +582,16 @@ export default function HalamanSiswa() {
 
   const handleLogin = (dataSiswa) => {
     setSiswa(dataSiswa)
-    setPhase('tunggu_mulai')
+    // If already completed with nilai, go straight to results
+    if (dataSiswa.nilai !== null || dataSiswa.selesai_at) {
+      setPhase('hasil')
+    } else {
+      setPhase('tunggu_mulai')
+    }
   }
 
   const forceLogout = () => {
-    localStorage.removeItem('siswa_id')
+    sessionStorage.removeItem('siswa_id')
     setSiswa(null)
     setPhase('login')
     setSoalList([])
