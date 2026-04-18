@@ -1,0 +1,482 @@
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '../supabaseClient'
+import InputSoal from '../components/InputSoal'
+
+const STATUS_LABEL = {
+  standby: { label: 'Standby', color: 'text-slate-400', bg: 'bg-slate-800', border: 'border-slate-600', dot: 'bg-slate-400' },
+  mulai:   { label: 'Ujian Berlangsung', color: 'text-amber-400', bg: 'bg-amber-900/20', border: 'border-amber-600', dot: 'bg-amber-400' },
+  selesai: { label: 'Ujian Selesai', color: 'text-blue-400', bg: 'bg-blue-900/20', border: 'border-blue-600', dot: 'bg-blue-400' },
+  tampilkan_nilai: { label: 'Nilai Dirilis', color: 'text-emerald-400', bg: 'bg-emerald-900/20', border: 'border-emerald-600', dot: 'bg-emerald-400' },
+}
+
+const STATUS_SISWA = {
+  offline: { label: 'Offline', color: 'text-slate-500', dot: 'bg-slate-500' },
+  online:  { label: 'Mengerjakan', color: 'text-amber-400', dot: 'bg-amber-400' },
+  selesai: { label: 'Selesai', color: 'text-emerald-400', dot: 'bg-emerald-400' },
+}
+
+// ─── Login Admin ──────────────────────────────────────────────────────────────
+function LoginAdmin({ onLogin }) {
+  const [user, setUser] = useState('')
+  const [pass, setPass] = useState('')
+  const [err, setErr] = useState('')
+
+  const ADMIN_USER = 'admin'
+  const ADMIN_PASS = 'admin123'
+
+  const handle = (e) => {
+    e.preventDefault()
+    if (user === ADMIN_USER && pass === ADMIN_PASS) {
+      onLogin()
+    } else {
+      setErr('Username atau password salah.')
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-mono">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-red-400/10 border border-red-400/30 text-3xl mb-4">
+            🔐
+          </div>
+          <h1 className="text-2xl font-black text-white">Admin Panel</h1>
+          <p className="text-slate-500 text-sm mt-1">Online CBT Management</p>
+        </div>
+        <form onSubmit={handle} className="bg-slate-900 border border-slate-700 rounded-2xl p-6 space-y-4">
+          <div>
+            <label className="block text-xs text-slate-400 uppercase tracking-wider mb-1.5">Username</label>
+            <input
+              value={user} onChange={e => setUser(e.target.value)}
+              placeholder="admin"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-red-400"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-400 uppercase tracking-wider mb-1.5">Password</label>
+            <input
+              type="password" value={pass} onChange={e => setPass(e.target.value)}
+              placeholder="••••••••"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-red-400"
+            />
+          </div>
+          {err && <p className="text-red-400 text-xs">{err}</p>}
+          <button type="submit" className="w-full bg-red-500 hover:bg-red-400 text-white font-bold py-3 rounded-xl text-sm transition-all hover:scale-[1.02]">
+            Masuk →
+          </button>
+        </form>
+        <p className="text-center text-slate-600 text-xs mt-4">Demo: admin / admin123</p>
+      </div>
+    </div>
+  )
+}
+
+// ─── Monitoring Tabel ─────────────────────────────────────────────────────────
+function TabelMonitoring({ siswaList, statusUjian }) {
+  const selesai = siswaList.filter(s => s.status_login === 'selesai').length
+  const mengerjakan = siswaList.filter(s => s.status_login === 'online').length
+  const offline = siswaList.filter(s => s.status_login === 'offline').length
+
+  return (
+    <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+      {/* Statistik bar */}
+      <div className="grid grid-cols-3 divide-x divide-slate-700 border-b border-slate-700">
+        <div className="p-4 text-center">
+          <p className="text-2xl font-black text-emerald-400">{selesai}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Selesai</p>
+        </div>
+        <div className="p-4 text-center">
+          <p className="text-2xl font-black text-amber-400">{mengerjakan}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Mengerjakan</p>
+        </div>
+        <div className="p-4 text-center">
+          <p className="text-2xl font-black text-slate-400">{offline}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Offline</p>
+        </div>
+      </div>
+
+      {/* Tabel */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-700 text-xs text-slate-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-left">No</th>
+              <th className="px-4 py-3 text-left">Nama Siswa</th>
+              <th className="px-4 py-3 text-left">Kelas</th>
+              <th className="px-4 py-3 text-left">No. Peserta</th>
+              <th className="px-4 py-3 text-center">Status</th>
+              <th className="px-4 py-3 text-center">Nilai</th>
+              <th className="px-4 py-3 text-left">Selesai Pada</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {siswaList.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-600 text-xs">
+                  Belum ada data siswa
+                </td>
+              </tr>
+            ) : (
+              siswaList.map((siswa, i) => {
+                const st = STATUS_SISWA[siswa.status_login] || STATUS_SISWA.offline
+                return (
+                  <tr key={siswa.id} className="hover:bg-slate-800/50 transition-colors">
+                    <td className="px-4 py-3 text-slate-500">{i + 1}</td>
+                    <td className="px-4 py-3 text-white font-medium">{siswa.nama}</td>
+                    <td className="px-4 py-3 text-slate-400">{siswa.kelas || '-'}</td>
+                    <td className="px-4 py-3 text-amber-400 font-mono">{siswa.nomor_peserta}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center gap-1.5 text-xs ${st.color}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${st.dot} ${siswa.status_login === 'online' ? 'animate-pulse' : ''}`} />
+                        {st.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {statusUjian === 'tampilkan_nilai' || siswa.nilai !== null ? (
+                        <span className={`font-black text-base ${
+                          siswa.nilai >= 80 ? 'text-emerald-400' :
+                          siswa.nilai >= 60 ? 'text-amber-400' : 'text-red-400'
+                        }`}>
+                          {siswa.nilai ?? '-'}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 text-xs">
+                      {siswa.selesai_at ? new Date(siswa.selesai_at).toLocaleTimeString('id-ID') : '-'}
+                    </td>
+                  </tr>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ─── MAIN ADMIN DASHBOARD ─────────────────────────────────────────────────────
+export default function AdminDashboard() {
+  const [loggedIn, setLoggedIn] = useState(false)
+  const [view, setView] = useState('dashboard') // 'dashboard' | 'input_soal'
+  const [statusUjian, setStatusUjian] = useState('standby')
+  const [siswaList, setSiswaList] = useState([])
+  const [jumlahSoal, setJumlahSoal] = useState(0)
+  const [loading, setLoading] = useState({})
+  const [konfirmasi, setKonfirmasi] = useState(null) // 'mulai' | 'selesai' | 'reset' | 'rilis'
+  const channelRef = useRef(null)
+
+  useEffect(() => {
+    if (!loggedIn) return
+    fetchAwal()
+    setupRealtime()
+    return () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current)
+    }
+  }, [loggedIn])
+
+  const fetchAwal = async () => {
+    const [{ data: cfg }, { data: sw }, { data: sq }] = await Promise.all([
+      supabase.from('konfigurasi_ujian').select('status').eq('id', 1).single(),
+      supabase.from('siswa').select('*').order('nomor_peserta'),
+      supabase.from('soal').select('id'),
+    ])
+    if (cfg) setStatusUjian(cfg.status)
+    if (sw) setSiswaList(sw)
+    if (sq) setJumlahSoal(sq.length)
+  }
+
+  const setupRealtime = () => {
+    const channel = supabase
+      .channel('admin-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'siswa' }, (payload) => {
+        if (payload.eventType === 'UPDATE') {
+          setSiswaList(prev => prev.map(s => s.id === payload.new.id ? { ...s, ...payload.new } : s))
+        } else if (payload.eventType === 'INSERT') {
+          setSiswaList(prev => [...prev, payload.new])
+        } else if (payload.eventType === 'DELETE') {
+          setSiswaList(prev => prev.filter(s => s.id !== payload.old.id))
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'konfigurasi_ujian', filter: 'id=eq.1' }, (payload) => {
+        setStatusUjian(payload.new.status)
+      })
+      .subscribe()
+    channelRef.current = channel
+  }
+
+  const updateStatus = async (newStatus) => {
+    setLoading(prev => ({ ...prev, [newStatus]: true }))
+    const { error } = await supabase
+      .from('konfigurasi_ujian')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', 1)
+    if (!error) setStatusUjian(newStatus)
+    setLoading(prev => ({ ...prev, [newStatus]: false }))
+    setKonfirmasi(null)
+  }
+
+  const handleResetUjian = async () => {
+    setLoading(prev => ({ ...prev, reset: true }))
+    await supabase.from('konfigurasi_ujian').update({ status: 'standby' }).eq('id', 1)
+    await supabase.from('siswa').update({ status_login: 'offline', nilai: null, jawaban: null, selesai_at: null, login_at: null })
+    setSiswaList(prev => prev.map(s => ({ ...s, status_login: 'offline', nilai: null })))
+    setStatusUjian('standby')
+    setLoading(prev => ({ ...prev, reset: false }))
+    setKonfirmasi(null)
+  }
+
+  const semuaSiswaSelesai = siswaList.filter(s => s.status_login !== 'offline').length > 0
+    && siswaList.filter(s => s.status_login !== 'offline').every(s => s.status_login === 'selesai')
+
+  const siswaOnline = siswaList.filter(s => s.status_login !== 'offline')
+  const pct = siswaOnline.length > 0
+    ? Math.round((siswaOnline.filter(s => s.status_login === 'selesai').length / siswaOnline.length) * 100)
+    : 0
+
+  const stInfo = STATUS_LABEL[statusUjian] || STATUS_LABEL.standby
+
+  if (!loggedIn) return <LoginAdmin onLogin={() => setLoggedIn(true)} />
+  if (view === 'input_soal') return <InputSoal onBack={() => { setView('dashboard'); fetchAwal() }} />
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white font-mono">
+      {/* Navbar */}
+      <nav className="bg-slate-900 border-b border-slate-700 px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-lg font-black text-white">🎓 CBT Admin</span>
+            <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${stInfo.bg} ${stInfo.border} ${stInfo.color}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${stInfo.dot} ${statusUjian === 'mulai' ? 'animate-pulse' : ''}`} />
+              {stInfo.label}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setView('input_soal')}
+              className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition-colors flex items-center gap-2"
+            >
+              📝 <span className="hidden sm:inline">Input Soal</span>
+              {jumlahSoal > 0 && <span className="text-xs text-amber-400">({jumlahSoal})</span>}
+            </button>
+            <button
+              onClick={() => setLoggedIn(false)}
+              className="px-3 py-1.5 text-sm text-slate-400 hover:text-white transition-colors"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
+        {/* Panel Kontrol Ujian */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Status Card */}
+          <div className={`rounded-xl border p-5 ${stInfo.bg} ${stInfo.border}`}>
+            <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Status Ujian</p>
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`w-3 h-3 rounded-full ${stInfo.dot} ${statusUjian === 'mulai' ? 'animate-pulse' : ''}`} />
+              <p className={`text-lg font-bold ${stInfo.color}`}>{stInfo.label}</p>
+            </div>
+            <p className="text-xs text-slate-500">
+              {statusUjian === 'standby' && 'Ujian belum dimulai'}
+              {statusUjian === 'mulai' && `${siswaOnline.filter(s => s.status_login === 'selesai').length}/${siswaOnline.length} selesai`}
+              {statusUjian === 'selesai' && 'Semua siswa selesai mengerjakan'}
+              {statusUjian === 'tampilkan_nilai' && 'Nilai sudah dirilis ke siswa'}
+            </p>
+          </div>
+
+          {/* Soal Card */}
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+            <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Bank Soal</p>
+            <p className={`text-3xl font-black mb-1 ${jumlahSoal >= 10 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {jumlahSoal}
+            </p>
+            <p className="text-xs text-slate-500">
+              {jumlahSoal === 0 ? '⚠️ Belum ada soal!' : jumlahSoal < 10 ? `${jumlahSoal}/10 soal` : '✅ 10 soal siap'}
+            </p>
+          </div>
+
+          {/* Progress Card */}
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+            <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Progress Siswa</p>
+            <p className="text-3xl font-black text-white mb-2">{pct}%</p>
+            <div className="w-full bg-slate-800 rounded-full h-1.5">
+              <div
+                className="bg-emerald-400 h-1.5 rounded-full transition-all duration-700"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-1.5">
+              {siswaOnline.filter(s => s.status_login === 'selesai').length}/{siswaOnline.length} selesai
+            </p>
+          </div>
+        </div>
+
+        {/* Tombol Aksi Utama */}
+        <div className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+          <p className="text-xs text-slate-500 uppercase tracking-wider mb-4">Kontrol Ujian</p>
+          <div className="flex flex-wrap gap-3">
+
+            {/* MULAI */}
+            {statusUjian === 'standby' && (
+              <button
+                onClick={() => setKonfirmasi('mulai')}
+                disabled={jumlahSoal < 10}
+                className="px-5 py-3 bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold rounded-xl text-sm transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                ▶ Mulai Ujian
+                {jumlahSoal < 10 && <span className="text-xs opacity-70">(soal kurang)</span>}
+              </button>
+            )}
+
+            {/* HENTIKAN MANUAL */}
+            {statusUjian === 'mulai' && (
+              <button
+                onClick={() => setKonfirmasi('selesai')}
+                className="px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-sm transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
+              >
+                ⏹ Hentikan Ujian
+              </button>
+            )}
+
+            {/* TAMPILKAN HASIL */}
+            {(statusUjian === 'selesai' || statusUjian === 'mulai') && (
+              <button
+                onClick={() => setKonfirmasi('rilis')}
+                className={`px-5 py-3 font-bold rounded-xl text-sm transition-all hover:scale-105 active:scale-95 flex items-center gap-2 ${
+                  semuaSiswaSelesai || statusUjian === 'selesai'
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
+                    : 'bg-emerald-900/40 border border-emerald-700 text-emerald-400 hover:bg-emerald-800/40'
+                }`}
+              >
+                🏆 Tampilkan Hasil Test
+                {semuaSiswaSelesai && <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded">Semua selesai ✓</span>}
+              </button>
+            )}
+
+            {/* RESET */}
+            {statusUjian !== 'standby' && (
+              <button
+                onClick={() => setKonfirmasi('reset')}
+                className="px-5 py-3 bg-red-900/40 border border-red-700 text-red-400 hover:bg-red-900/60 font-bold rounded-xl text-sm transition-all flex items-center gap-2"
+              >
+                🔄 Reset Ujian
+              </button>
+            )}
+
+          </div>
+
+          {/* Peringatan soal kurang */}
+          {statusUjian === 'standby' && jumlahSoal < 10 && (
+            <div className="mt-3 flex items-center gap-2 text-amber-400 text-xs bg-amber-900/20 border border-amber-800 rounded-lg px-3 py-2">
+              ⚠️ Soal harus 10 sebelum memulai. Klik "Input Soal" di navbar untuk mengisi soal.
+            </div>
+          )}
+
+          {/* Notif semua selesai */}
+          {statusUjian === 'mulai' && semuaSiswaSelesai && (
+            <div className="mt-3 flex items-center gap-2 text-emerald-400 text-xs bg-emerald-900/20 border border-emerald-700 rounded-lg px-3 py-2 animate-pulse">
+              ✅ Semua siswa sudah selesai mengerjakan! Klik "Tampilkan Hasil Test" untuk merilis nilai.
+            </div>
+          )}
+        </div>
+
+        {/* Tabel Monitoring */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+              Monitor Peserta
+            </h2>
+            <button
+              onClick={fetchAwal}
+              className="text-xs text-slate-500 hover:text-white transition-colors flex items-center gap-1"
+            >
+              🔄 Refresh
+            </button>
+          </div>
+          <TabelMonitoring siswaList={siswaList} statusUjian={statusUjian} />
+        </div>
+      </div>
+
+      {/* Modal Konfirmasi */}
+      {konfirmasi && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-600 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
+            {konfirmasi === 'mulai' && (
+              <>
+                <p className="text-3xl mb-3">▶️</p>
+                <h3 className="font-bold text-white mb-2">Mulai Ujian?</h3>
+                <p className="text-slate-400 text-sm mb-5">
+                  Semua siswa yang online akan otomatis mendapatkan soal dan mulai mengerjakan.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setKonfirmasi(null)} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm transition-colors">Batal</button>
+                  <button onClick={() => updateStatus('mulai')} disabled={loading.mulai} className="flex-1 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold rounded-xl text-sm transition-colors">
+                    {loading.mulai ? '⏳' : '▶ Mulai'}
+                  </button>
+                </div>
+              </>
+            )}
+            {konfirmasi === 'selesai' && (
+              <>
+                <p className="text-3xl mb-3">⏹️</p>
+                <h3 className="font-bold text-white mb-2">Hentikan Ujian?</h3>
+                <p className="text-slate-400 text-sm mb-5">
+                  Siswa yang belum selesai tidak bisa lagi mengumpulkan jawaban.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setKonfirmasi(null)} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm">Batal</button>
+                  <button onClick={() => updateStatus('selesai')} disabled={loading.selesai} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-sm">
+                    {loading.selesai ? '⏳' : '⏹ Hentikan'}
+                  </button>
+                </div>
+              </>
+            )}
+            {konfirmasi === 'rilis' && (
+              <>
+                <p className="text-3xl mb-3">🏆</p>
+                <h3 className="font-bold text-white mb-2">Rilis Nilai Sekarang?</h3>
+                <p className="text-slate-400 text-sm mb-5">
+                  Nilai akan langsung tampil di layar semua siswa secara real-time.
+                  Tindakan ini <span className="text-amber-400">tidak dapat dibatalkan</span>.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setKonfirmasi(null)} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm">Batal</button>
+                  <button
+                    onClick={async () => {
+                      await updateStatus('selesai')
+                      await updateStatus('tampilkan_nilai')
+                    }}
+                    disabled={loading.tampilkan_nilai}
+                    className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white font-bold rounded-xl text-sm"
+                  >
+                    {loading.tampilkan_nilai ? '⏳' : '🏆 Rilis'}
+                  </button>
+                </div>
+              </>
+            )}
+            {konfirmasi === 'reset' && (
+              <>
+                <p className="text-3xl mb-3">⚠️</p>
+                <h3 className="font-bold text-white mb-2">Reset Semua Data?</h3>
+                <p className="text-slate-400 text-sm mb-5">
+                  Status ujian kembali ke <span className="text-white font-bold">Standby</span> dan semua nilai serta jawaban siswa akan dihapus.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setKonfirmasi(null)} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm">Batal</button>
+                  <button onClick={handleResetUjian} disabled={loading.reset} className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-sm">
+                    {loading.reset ? '⏳' : '🔄 Reset'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
