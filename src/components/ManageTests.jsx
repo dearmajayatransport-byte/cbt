@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 
-export default function ManageTests({ onBack }) {
+export default function ManageTests({ onBack, onSelectTest }) {
   const [tests, setTests] = useState([])
   const [loading, setLoading] = useState(false)
   const [modal, setModal] = useState(null) // 'create' | 'edit'
@@ -9,6 +9,7 @@ export default function ManageTests({ onBack }) {
   const [hapusTest, setHapusTest] = useState(null)
   const [form, setForm] = useState({ nama_test: '', deskripsi: '' })
   const [err, setErr] = useState('')
+  const [soalCounts, setSoalCounts] = useState({})
 
   useEffect(() => {
     fetchTests()
@@ -18,6 +19,16 @@ export default function ManageTests({ onBack }) {
     setLoading(true)
     const { data } = await supabase.from('test').select('*').order('created_at', { ascending: true })
     setTests(data || [])
+    
+    // Get question count for each test
+    if (data?.length) {
+      const counts = {}
+      for (const test of data) {
+        const { count } = await supabase.from('soal').select('*', { count: 'exact', head: true }).eq('test_id', test.id)
+        counts[test.id] = count || 0
+      }
+      setSoalCounts(counts)
+    }
     setLoading(false)
   }
 
@@ -78,11 +89,6 @@ export default function ManageTests({ onBack }) {
     setModal('edit')
   }
 
-  const jumlahSoal = async (testId) => {
-    const { count } = await supabase.from('soal').select('*', { count: 'exact', head: true }).eq('test_id', testId)
-    return count || 0
-  }
-
   return (
     <div className="min-h-screen bg-slate-950 text-white font-mono">
       {/* Header */}
@@ -131,6 +137,15 @@ export default function ManageTests({ onBack }) {
                   </div>
                   <span className="text-xs px-2 py-1 bg-violet-900/30 text-violet-300 border border-violet-700/50 rounded">ID: {test.id}</span>
                 </div>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className={`text-xs px-2 py-1 rounded-full border ${
+                    (soalCounts[test.id] || 0) >= 10 
+                      ? 'bg-emerald-900/30 text-emerald-400 border-emerald-700/50'
+                      : 'bg-amber-900/30 text-amber-400 border-amber-700/50'
+                  }`}>
+                    {(soalCounts[test.id] || 0)} / 10 soal
+                  </span>
+                </div>
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-800">
                   <button
                     onClick={() => openEdit(test)}
@@ -139,10 +154,16 @@ export default function ManageTests({ onBack }) {
                     ✏️ Edit
                   </button>
                   <button
+                    onClick={() => onSelectTest && onSelectTest(test)}
+                    className="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-colors"
+                  >
+                    ✓ Pilih
+                  </button>
+                  <button
                     onClick={() => setHapusTest(test)}
                     className="text-xs px-3 py-1.5 bg-red-900/30 hover:bg-red-900/50 border border-red-700/50 text-red-300 rounded-lg transition-colors"
                   >
-                    🗑️ Hapus
+                    🗑️
                   </button>
                 </div>
               </div>

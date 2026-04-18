@@ -326,7 +326,13 @@ const updateStatus = async (newStatus) => {
    if (!loggedIn) return <LoginAdmin onLogin={() => setLoggedIn(true)} />
    if (view === 'input_soal') return <InputSoal onBack={() => { setView('dashboard'); fetchAwal() }} testId={selectedTestId} />
    if (view === 'data_siswa') return <DataSiswa onBack={() => setView('dashboard')} />
-   if (view === 'manage_tests') return <ManageTests onBack={() => { setView('dashboard'); fetchAwal() }} />
+   if (view === 'manage_tests') return <ManageTests 
+      onBack={() => { setView('dashboard'); fetchAwal() }} 
+      onSelectTest={(test) => {
+        setSelectedTestId(test.id)
+        setView('input_soal')
+      }} 
+    />
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-mono">
